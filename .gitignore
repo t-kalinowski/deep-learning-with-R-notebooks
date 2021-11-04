@@ -16,3 +16,5 @@ spa.txt
 *.png
 .ipynb_checkpoints
 .vscode
+*.py
+*.ipynb
