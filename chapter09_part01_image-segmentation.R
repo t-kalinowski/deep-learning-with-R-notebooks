@@ -26,9 +26,6 @@ system('tar -xf images.tar.gz')
 system('tar -xf annotations.tar.gz')
 }
 
-tensorflow::tf$config$gpu.set_per_process_memory_growth(TRUE)
-
-
 # In[ ]:
 
 
@@ -129,42 +126,37 @@ display_target(img)
 img_size <- c(200, 200)
 num_imgs <- length(input_img_paths)
 
-input_img_paths <- sample(input_img_paths)
-target_paths <- sample(target_paths)
+index <- sample.int(num_imgs)
+input_img_paths <- input_img_paths[index]
+target_paths <- target_paths[index]
 
 path_to_input_image <- function(path) {
   path %>%
     image_load(target_size = img_size) %>%
-    image_to_array() %>%
-    as_tensor()
+    image_to_array()
 }
 
 path_to_target <- function(path) {
-  im <- path %>%
+  path %>%
     image_load(grayscale = TRUE, target_size = img_size) %>%
-    image_to_array() %>%
-    as_tensor()
-  (im - 1)
+    image_to_array()
 }
 
-input_imgs <- input_img_paths %>%
-  lapply(path_to_input_image) %>%
-  do.call(what = tuple, .) %>%
-  tf$stack()
 
-targets <- target_paths %>%
-  lapply(path_to_target) %>%
-  do.call(what = tuple) %>%
-  tf$stack() %>%
-  tf$cast(tf$uint8)
+input_imgs <- array(0L, dim = c(num_imgs, img_size, 3))
+targets <- array(0L, dim = c(num_imgs, img_size, 1))
+
+for (i in seq_len(num_imgs)) {
+  input_imgs[i,,,] <- path_to_input_image(input_img_paths[i])
+  targets[i,,,] <- as.integer(path_to_target(target_paths[i]))
+}
 
 num_val_samples <- 1000
 
-train_input_imgs <- input_imgs[`:-num_val_samples`,all_dims()]
-train_targets = targets[`:-num_val_samples`, all_dims()]
-val_input_imgs = input_imgs[`-num_val_samples:`, all_dims()]
-val_targets = targets[`-num_val_samples:`, all_dims()]
-
+train_input_imgs <- input_imgs[1:(num_imgs - num_val_samples),,,]
+train_targets = targets[1:(num_imgs - num_val_samples),,,]
+val_input_imgs = input_imgs[(num_imgs - num_val_samples + 1):num_imgs,,,]
+val_targets = targets[(num_imgs - num_val_samples + 1):num_imgs,,,]
 
 # In[ ]:
 
@@ -284,15 +276,7 @@ history <- model %>% fit(
 # plt.title("Training and validation loss")
 # plt.legend()
 
-epochs = range(1, len(history.history["loss"]) + 1)
-loss = history.history["loss"]
-val_loss = history.history["val_loss"]
-plt.figure()
-plt.plot(epochs, loss, "bo", label="Training loss")
-plt.plot(epochs, val_loss, "b", label="Validation loss")
-plt.title("Training and validation loss")
-plt.legend()
-
+plot(history)
 
 # In[ ]:
 
@@ -316,22 +300,26 @@ plt.legend()
 #
 # display_mask(mask)
 
-from tensorflow.keras.utils import array_to_img
 
-model = keras.models.load_model("oxford_segmentation.keras")
+model <- load_model_tf("oxford_segmentation.keras")
 
-i = 4
-test_image = val_input_imgs[i]
-plt.axis("off")
-plt.imshow(array_to_img(test_image))
+i <- 5
+test_image <- val_input_imgs[i,,,,drop=FALSE]
+plot(as.raster(test_image[1,,,], max = 255))
 
-mask = model.predict(np.expand_dims(test_image, 0))[0]
 
-def display_mask(pred):
-    mask = np.argmax(pred, axis=-1)
-    mask *= 127
-    plt.axis("off")
-    plt.imshow(mask)
+mask <- predict(model, test_image)
+
+display_mask <- function(pred) {
+  mask <- tf$argmax(pred, axis=-1L) * 127
+  mask[1,,] %>%
+    tf$expand_dims(-1L) %>%
+    tf$image$grayscale_to_rgb() %>%
+    as.array() %>%
+    as.raster(max = 255) %>%
+    plot()
+}
+
 
 display_mask(mask)
 
