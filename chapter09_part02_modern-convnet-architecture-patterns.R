@@ -28,16 +28,16 @@
 # residual = layers.Conv2D(64, 1)(residual)
 # x = layers.add([x, residual])
 
-from tensorflow import keras
-from tensorflow.keras import layers
 
-inputs = keras.Input(shape=(32, 32, 3))
-x = layers.Conv2D(32, 3, activation="relu")(inputs)
-residual = x
-x = layers.Conv2D(64, 3, activation="relu", padding="same")(x)
-residual = layers.Conv2D(64, 1)(residual)
-x = layers.add([x, residual])
+library(keras)
 
+inputs <- layer_input(shape = c(32, 32, 3))
+x <- layer_conv_2d(inputs, filters = 32, kernel_size = 3, activation = "relu")
+residual <- x
+x <- layer_conv_2d(x, filters = 64, kernel_size = 3, activation = "relu",
+                   padding = "same")
+residual <- layer_conv_2d(residual, filters = 64, kernel_size = 1)
+x <- layer_add(list(x, residual))
 
 # **Case where target block includes a max pooling layer**
 
@@ -52,14 +52,15 @@ x = layers.add([x, residual])
 # residual = layers.Conv2D(64, 1, strides=2)(residual)
 # x = layers.add([x, residual])
 
-inputs = keras.Input(shape=(32, 32, 3))
-x = layers.Conv2D(32, 3, activation="relu")(inputs)
-residual = x
-x = layers.Conv2D(64, 3, activation="relu", padding="same")(x)
-x = layers.MaxPooling2D(2, padding="same")(x)
-residual = layers.Conv2D(64, 1, strides=2)(residual)
-x = layers.add([x, residual])
 
+inputs <- layer_input(shape = c(32, 32, 3))
+x <- layer_conv_2d(inputs, filters = 32, kernel_size = 3, activation = "relu")
+residual <- x
+x <- layer_conv_2d(x, filters = 64, kernel_size = 3, activation = "relu",
+                   padding = "same")
+x <- layer_max_pooling_2d(x, pool_size = 2, padding = "same")
+residual <- layer_conv_2d(residual, filters = 64, kernel_size = 1, strides = 2)
+x <- layer_add(list(x, residual))
 
 # In[ ]:
 
@@ -88,30 +89,37 @@ x = layers.add([x, residual])
 # model = keras.Model(inputs=inputs, outputs=outputs)
 # model.summary()
 
-inputs = keras.Input(shape=(32, 32, 3))
-x = layers.Rescaling(1./255)(inputs)
+inputs <- layer_input(shape = c(32, 32, 3))
+x <- layer_rescaling(inputs, scale = 1/255)
 
-def residual_block(x, filters, pooling=False):
-  residual = x
-x = layers.Conv2D(filters, 3, activation="relu", padding="same")(x)
-x = layers.Conv2D(filters, 3, activation="relu", padding="same")(x)
-if pooling:
-  x = layers.MaxPooling2D(2, padding="same")(x)
-residual = layers.Conv2D(filters, 1, strides=2)(residual)
-elif filters != residual.shape[-1]:
-  residual = layers.Conv2D(filters, 1)(residual)
-x = layers.add([x, residual])
-return x
+residual_block <- function(x, filters, pooling = FALSE) {
+  residual <- x
+  x <- x %>%
+    layer_conv_2d(filters = filters, kernel_size = 3, activation = "relu",
+                  padding = "same") %>%
+    layer_conv_2d(filters = filters, kernel_size = 3, activation = "relu",
+                  padding = "same")
 
-x = residual_block(x, filters=32, pooling=True)
-x = residual_block(x, filters=64, pooling=True)
-x = residual_block(x, filters=128, pooling=False)
+  if (pooling) {
+    x <- layer_max_pooling_2d(x, pool_size = 2, padding = "same")
+    residual <- layer_conv_2d(residual, filters = filters, kernel_size = 1,
+                              strides = 2)
+  } else if (filters != residual$shape[[4]]) {
+    residual <- layer_conv_2d(residual, filters = filters, kernel_size = 1)
+  }
 
-x = layers.GlobalAveragePooling2D()(x)
-outputs = layers.Dense(1, activation="sigmoid")(x)
-model = keras.Model(inputs=inputs, outputs=outputs)
-model.summary()
+  layer_add(list(x, residual))
+}
 
+x <- residual_block(x, filters=32, pooling=TRUE)
+x <- residual_block(x, filters=64, pooling=TRUE)
+x <- residual_block(x, filters=128, pooling=FALSE)
+
+x <- layer_global_average_pooling_2d(x)
+outputs <- layer_dense(x, units = 1, activation="sigmoid")
+
+model <- keras_model(inputs = inputs, outputs = outputs)
+model
 
 # ### Batch normalization
 
@@ -125,10 +133,6 @@ model.summary()
 # from google.colab import files
 # files.upload()
 
-from google.colab import files
-files.upload()
-
-
 # In[ ]:
 
 
@@ -138,12 +142,11 @@ files.upload()
 # get_ipython().system('kaggle competitions download -c dogs-vs-cats')
 # get_ipython().system('unzip -qq train.zip')
 
-get_ipython().system('mkdir ~/.kaggle')
-get_ipython().system('cp kaggle.json ~/.kaggle/')
-get_ipython().system('chmod 600 ~/.kaggle/kaggle.json')
-get_ipython().system('kaggle competitions download -c dogs-vs-cats')
-get_ipython().system('unzip -qq train.zip')
-
+if (FALSE) {
+  system('kaggle competitions download -c dogs-vs-cats')
+  system('unzip -qq dogs-vs-cats.zip')
+  system('unzip -qq train.zip')
+}
 
 # In[ ]:
 
