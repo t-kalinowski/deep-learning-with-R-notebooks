@@ -183,36 +183,38 @@ if (FALSE) {
 #     image_size=(180, 180),
 #     batch_size=32)
 
-import os, shutil, pathlib
-from tensorflow.keras.utils import image_dataset_from_directory
 
-original_dir = pathlib.Path("train")
-new_base_dir = pathlib.Path("cats_vs_dogs_small")
+original_dir <- "train"
+new_base_dir <- "cats_vs_dogs_small"
 
-def make_subset(subset_name, start_index, end_index):
-  for category in ("cat", "dog"):
-  dir = new_base_dir / subset_name / category
-os.makedirs(dir)
-fnames = [f"{category}.{i}.jpg" for i in range(start_index, end_index)]
-for fname in fnames:
-  shutil.copyfile(src=original_dir / fname,
-                  dst=dir / fname)
+if (FALSE) {
 
-make_subset("train", start_index=0, end_index=1000)
-make_subset("validation", start_index=1000, end_index=1500)
-make_subset("test", start_index=1500, end_index=2500)
+  make_subset <- function(subset_name, start_index, end_index) {
+    for (category in c("cat", "dog")) {
+      dir <- fs::path(new_base_dir, subset_name, category)
+      fs::dir_create(dir)
+      fnames <- glue::glue("{category}.{start_index:(end_index-1)}.jpg")
+      fs::file_copy(fs::path(original_dir, fnames), fs::path(dir, fnames))
+    }
+  }
 
-train_dataset = image_dataset_from_directory(
-  new_base_dir / "train",
-  image_size=(180, 180),
+  make_subset("train", start_index=0, end_index=1000)
+  make_subset("validation", start_index=1000, end_index=1500)
+  make_subset("test", start_index=1500, end_index=2500)
+
+}
+
+train_dataset <- image_dataset_from_directory(
+  fs::path(new_base_dir, "train"),
+  image_size=c(180, 180),
   batch_size=32)
-validation_dataset = image_dataset_from_directory(
-  new_base_dir / "validation",
-  image_size=(180, 180),
+validation_dataset <- image_dataset_from_directory(
+  fs::path(new_base_dir, "validation"),
+  image_size=c(180, 180),
   batch_size=32)
-test_dataset = image_dataset_from_directory(
-  new_base_dir / "test",
-  image_size=(180, 180),
+test_dataset <- image_dataset_from_directory(
+  fs::path(new_base_dir, "test"),
+  image_size=c(180, 180),
   batch_size=32)
 
 
@@ -227,14 +229,11 @@ test_dataset = image_dataset_from_directory(
 #     ]
 # )
 
-data_augmentation = keras.Sequential(
-  [
-    layers.RandomFlip("horizontal"),
-    layers.RandomRotation(0.1),
-    layers.RandomZoom(0.2),
-  ]
-)
 
+data_augmentation <- keras_model_sequential() %>%
+  layer_random_flip(mode = "horizontal") %>%
+  layer_random_rotation(factor = 0.1) %>%
+  layer_random_zoom(height_factor = 0.2)
 
 # In[ ]:
 
@@ -267,34 +266,41 @@ data_augmentation = keras.Sequential(
 # outputs = layers.Dense(1, activation="sigmoid")(x)
 # model = keras.Model(inputs=inputs, outputs=outputs)
 
-inputs = keras.Input(shape=(180, 180, 3))
-x = data_augmentation(inputs)
+inputs <- layer_input(shape = c(180, 180, 3))
+x <- data_augmentation(inputs)
 
-x = layers.Rescaling(1./255)(x)
-x = layers.Conv2D(filters=32, kernel_size=5, use_bias=False)(x)
+x <- layer_rescaling(x, scale = 1/255)
+x <- layer_conv_2d(x, filters = 32, kernel_size = 5, use_bias = FALSE)
 
-for size in [32, 64, 128, 256, 512]:
-  residual = x
+for (size in c(32, 64, 128, 256, 512)) {
 
-x = layers.BatchNormalization()(x)
-x = layers.Activation("relu")(x)
-x = layers.SeparableConv2D(size, 3, padding="same", use_bias=False)(x)
+  residual <- x
 
-x = layers.BatchNormalization()(x)
-x = layers.Activation("relu")(x)
-x = layers.SeparableConv2D(size, 3, padding="same", use_bias=False)(x)
+  x <- x %>%
+    layer_batch_normalization() %>%
+    layer_activation("relu") %>%
+    layer_separable_conv_2d(filters = size, kernel_size = 3, padding = "same",
+                            use_bias = FALSE) %>%
 
-x = layers.MaxPooling2D(3, strides=2, padding="same")(x)
+    layer_batch_normalization() %>%
+    layer_activation("relu") %>%
+    layer_separable_conv_2d(filters = size, kernel_size = 3, padding = "same",
+                            use_bias = FALSE) %>%
 
-residual = layers.Conv2D(
-  size, 1, strides=2, padding="same", use_bias=False)(residual)
-x = layers.add([x, residual])
+    layer_max_pooling_2d(pool_size = 3, strides = 2, padding = "same")
 
-x = layers.GlobalAveragePooling2D()(x)
-x = layers.Dropout(0.5)(x)
-outputs = layers.Dense(1, activation="sigmoid")(x)
-model = keras.Model(inputs=inputs, outputs=outputs)
+  residual <- layer_conv_2d(residual, filters = size, kernel_size = 1, strides = 2,
+                            padding = "same", use_bias = FALSE)
 
+  x <- layer_add(list(x, residual))
+}
+
+outputs <- x %>%
+  layer_global_average_pooling_2d() %>%
+  layer_dropout(0.5) %>%
+  layer_dense(1, activation = "sigmoid")
+
+model <- keras_model(inputs, outputs)
 
 # In[ ]:
 
@@ -307,11 +313,15 @@ model = keras.Model(inputs=inputs, outputs=outputs)
 #     epochs=100,
 #     validation_data=validation_dataset)
 
-model.compile(loss="binary_crossentropy",
-              optimizer="rmsprop",
-              metrics=["accuracy"])
-history = model.fit(
-  train_dataset,
-  epochs=100,
-  validation_data=validation_dataset)
+model %>%
+  compile(
+    loss="binary_crossentropy",
+    optimizer="rmsprop",
+    metrics="accuracy"
+  )
 
+history <- model %>%
+  fit(
+    train_dataset,
+    epochs=100,
+    validation_data=validation_dataset)
