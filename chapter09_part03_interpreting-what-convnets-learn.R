@@ -479,11 +479,10 @@ get_img_array <- function(img_path, target_size) {
     image_to_array() %>%
     as_tensor() %>%
     tf$expand_dims(axis = 0L) %>%
-    imagenet_preprocess_input()
+    tf$keras$applications$xception$preprocess_input()
 }
 
 img_array <- get_img_array(img_path, target_size=c(299, 299))
-
 
 # In[ ]:
 
@@ -491,16 +490,14 @@ img_array <- get_img_array(img_path, target_size=c(299, 299))
 # preds = model.predict(img_array)
 # print(keras.applications.xception.decode_predictions(preds, top=3)[0])
 
-preds = model.predict(img_array)
-print(keras.applications.xception.decode_predictions(preds, top=3)[0])
-
+preds <- predict(model, img_array)
+print(imagenet_decode_predictions(preds, top=3)[[1]])
 
 # In[ ]:
 
-
 # np.argmax(preds[0])
 
-np.argmax(preds[0])
+which.max(preds[1,])
 
 # **Setting up a model that returns the last convolutional output**
 
@@ -515,13 +512,13 @@ np.argmax(preds[0])
 # last_conv_layer = model.get_layer(last_conv_layer_name)
 # last_conv_layer_model = keras.Model(model.inputs, last_conv_layer.output)
 
-last_conv_layer_name = "block14_sepconv2_act"
-classifier_layer_names = [
+last_conv_layer_name <- "block14_sepconv2_act"
+classifier_layer_names <- c(
   "avg_pool",
-  "predictions",
-]
-last_conv_layer = model.get_layer(last_conv_layer_name)
-last_conv_layer_model = keras.Model(model.inputs, last_conv_layer.output)
+  "predictions"
+)
+last_conv_layer <- get_layer(model, last_conv_layer_name)
+last_conv_layer_model <- keras_model(model$inputs, last_conv_layer$output)
 
 
 # **Reapplying the classifier on top of the last convolutional output**
@@ -535,11 +532,12 @@ last_conv_layer_model = keras.Model(model.inputs, last_conv_layer.output)
 #     x = model.get_layer(layer_name)(x)
 # classifier_model = keras.Model(classifier_input, x)
 
-classifier_input = keras.Input(shape=last_conv_layer.output.shape[1:])
-x = classifier_input
-for layer_name in classifier_layer_names:
-  x = model.get_layer(layer_name)(x)
-classifier_model = keras.Model(classifier_input, x)
+classifier_input <- layer_input(batch_shape = last_conv_layer$output$shape)
+x <- classifier_input
+for (layer_name in classifier_layer_names) {
+ x <- get_layer(model, layer_name)(x)
+}
+classifier_model <- keras_model(classifier_input, x)
 
 
 # **Retrieving the gradients of the top predicted class**
@@ -558,16 +556,15 @@ classifier_model = keras.Model(classifier_input, x)
 #
 # grads = tape.gradient(top_class_channel, last_conv_layer_output)
 
-import tensorflow as tf
+with (tf$GradientTape() %as% tape, {
+  last_conv_layer_output <- last_conv_layer_model(img_array)
+  tape$watch(last_conv_layer_output)
+  preds <- classifier_model(last_conv_layer_output)
+  top_pred_index <- tf$argmax(preds[1,])
+  top_class_channel <- preds[,top_pred_index]
+})
 
-with tf.GradientTape() as tape:
-  last_conv_layer_output = last_conv_layer_model(img_array)
-tape.watch(last_conv_layer_output)
-preds = classifier_model(last_conv_layer_output)
-top_pred_index = tf.argmax(preds[0])
-top_class_channel = preds[:, top_pred_index]
-
-grads = tape.gradient(top_class_channel, last_conv_layer_output)
+grads <- tape$gradient(top_class_channel, last_conv_layer_output)
 
 
 # **Gradient pooling and channel-importance weighting**
@@ -581,12 +578,14 @@ grads = tape.gradient(top_class_channel, last_conv_layer_output)
 #     last_conv_layer_output[:, :, i] *= pooled_grads[i]
 # heatmap = np.mean(last_conv_layer_output, axis=-1)
 
-pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2)).numpy()
-last_conv_layer_output = last_conv_layer_output.numpy()[0]
-for i in range(pooled_grads.shape[-1]):
-  last_conv_layer_output[:, :, i] *= pooled_grads[i]
-heatmap = np.mean(last_conv_layer_output, axis=-1)
+pooled_grads <- as.array(tf$reduce_mean(grads, axis=c(0L, 1L, 2L)))
+last_conv_layer_output <- as.array(last_conv_layer_output[1,all_dims()])
 
+for (i in dim(pooled_grads)) {
+  last_conv_layer_output[, , i] <-  last_conv_layer_output[, , i] * pooled_grads[i]
+}
+
+heatmap <- apply(last_conv_layer_output, c(2, 1), mean)
 
 # **Heatmap post-processing**
 
@@ -597,10 +596,11 @@ heatmap = np.mean(last_conv_layer_output, axis=-1)
 # heatmap /= np.max(heatmap)
 # plt.matshow(heatmap)
 
-heatmap = np.maximum(heatmap, 0)
-heatmap /= np.max(heatmap)
-plt.matshow(heatmap)
+heatmap[heatmap < 0] <- 0
+heatmap <- heatmap/max(heatmap)
+heatmap <- heatmap[,rev(seq_len(ncol(heatmap)))]
 
+matshow(heatmap)
 
 # **Superimposing the heatmap on the original picture**
 
@@ -628,26 +628,28 @@ plt.matshow(heatmap)
 # save_path = "elephant_cam.jpg"
 # superimposed_img.save(save_path)
 
-import matplotlib.cm as cm
+img <- img_path %>%
+  image_load() %>%
+  image_to_array()
 
-img = keras.utils.load_img(img_path)
-img = keras.utils.img_to_array(img)
+heatmap <- heatmap %>%
+  tf$expand_dims(2L) %>%
+  tf$image$resize(size = dim(img)[-3]) %>%
+  tf$squeeze(2L)
 
-heatmap = np.uint8(255 * heatmap)
+matshow <- function(x, img) {
+  df <- expand.grid(x = seq_len(nrow(x)) - 1, y = seq_len(ncol(x)) - 1)
+  df$fill <- as.numeric(x)
 
-jet = cm.get_cmap("jet")
-jet_colors = jet(np.arange(256))[:, :3]
-jet_heatmap = jet_colors[heatmap]
+  df %>%
+    ggplot(aes(x = x, y = y, fill = fill)) +
+    annotation_raster(img/255, xmin = 0, xmax = max(df$x), ymin = 0, ymax = max(df$y)) +
+    geom_raster(alpha = 0.3) +
+    scale_fill_viridis_c() +
+    guides(fill = "none") +
+    theme_void()
+}
 
-jet_heatmap = keras.utils.array_to_img(jet_heatmap)
-jet_heatmap = jet_heatmap.resize((img.shape[1], img.shape[0]))
-jet_heatmap = keras.utils.img_to_array(jet_heatmap)
-
-superimposed_img = jet_heatmap * 0.4 + img
-superimposed_img = keras.utils.array_to_img(superimposed_img)
-
-save_path = "elephant_cam.jpg"
-superimposed_img.save(save_path)
-
+matshow(heatmap, as.array(img))
 
 # ## Summary
