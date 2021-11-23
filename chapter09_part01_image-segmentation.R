@@ -26,7 +26,6 @@ system('tar -xf images.tar.gz')
 system('tar -xf annotations.tar.gz')
 }
 
-
 # In[ ]:
 
 
@@ -44,19 +43,12 @@ system('tar -xf annotations.tar.gz')
 #      for fname in os.listdir(target_dir)
 #      if fname.endswith(".png") and not fname.startswith(".")])
 #
-import os
 
-input_dir = "images/"
-target_dir = "annotations/trimaps/"
+input_dir <- "images/"
+target_dir <- "annotations/trimaps/"
 
-input_img_paths = sorted(
-    [os.path.join(input_dir, fname)
-     for fname in os.listdir(input_dir)
-     if fname.endswith(".jpg")])
-target_paths = sorted(
-    [os.path.join(target_dir, fname)
-     for fname in os.listdir(target_dir)
-     if fname.endswith(".png") and not fname.startswith(".")])
+input_img_paths <- fs::dir_ls(input_dir, glob = "*.jpg")
+target_paths <- fs::dir_ls(target_dir, glob = "*.png")
 
 
 # In[ ]:
@@ -69,12 +61,13 @@ target_paths = sorted(
 # plt.imshow(load_img(input_img_paths[9]))
 #
 
-import matplotlib.pyplot as plt
-from tensorflow.keras.utils import load_img, img_to_array
+library(keras)
+library(tensorflow)
 
-plt.axis("off")
-plt.imshow(load_img(input_img_paths[9]))
-
+img <- image_load(input_img_paths[10]) %>%
+  image_to_array() %>%
+  as.raster(max = 255) %>%
+  plot()
 
 # In[ ]:
 
@@ -87,14 +80,15 @@ plt.imshow(load_img(input_img_paths[9]))
 # img = img_to_array(load_img(target_paths[9], color_mode="grayscale"))
 # display_target(img)
 
-def display_target(target_array):
-    normalized_array = (target_array.astype("uint8") - 1) * 127
-    plt.axis("off")
-    plt.imshow(normalized_array[:, :, 0])
+display_target <- function(target_array) {
+  normalized_array <- (target_array - 1) * 127
+  normalized_array <- tf$image$grayscale_to_rgb(as_tensor(normalized_array))
+  normalized_array <- as.raster(as.array(normalized_array), max = 255)
+  plot(normalized_array)
+}
 
-img = img_to_array(load_img(target_paths[9], color_mode="grayscale"))
+img <- image_to_array(image_load(target_paths[10], grayscale = TRUE))
 display_target(img)
-
 
 # In[ ]:
 
@@ -129,36 +123,40 @@ display_target(img)
 # val_input_imgs = input_imgs[-num_val_samples:]
 # val_targets = targets[-num_val_samples:]
 
-import numpy as np
-import random
+img_size <- c(200, 200)
+num_imgs <- length(input_img_paths)
 
-img_size = (200, 200)
-num_imgs = len(input_img_paths)
+index <- sample.int(num_imgs)
+input_img_paths <- input_img_paths[index]
+target_paths <- target_paths[index]
 
-random.Random(1337).shuffle(input_img_paths)
-random.Random(1337).shuffle(target_paths)
+path_to_input_image <- function(path) {
+  path %>%
+    image_load(target_size = img_size) %>%
+    image_to_array()
+}
 
-def path_to_input_image(path):
-    return img_to_array(load_img(path, target_size=img_size))
+path_to_target <- function(path) {
+  path %>%
+    image_load(grayscale = TRUE, target_size = img_size) %>%
+    image_to_array()
+}
 
-def path_to_target(path):
-    img = img_to_array(
-        load_img(path, target_size=img_size, color_mode="grayscale"))
-    img = img.astype("uint8") - 1
-    return img
 
-input_imgs = np.zeros((num_imgs,) + img_size + (3,), dtype="float32")
-targets = np.zeros((num_imgs,) + img_size + (1,), dtype="uint8")
-for i in range(num_imgs):
-    input_imgs[i] = path_to_input_image(input_img_paths[i])
-    targets[i] = path_to_target(target_paths[i])
+input_imgs <- array(0L, dim = c(num_imgs, img_size, 3))
+targets <- array(0L, dim = c(num_imgs, img_size, 1))
 
-num_val_samples = 1000
-train_input_imgs = input_imgs[:-num_val_samples]
-train_targets = targets[:-num_val_samples]
-val_input_imgs = input_imgs[-num_val_samples:]
-val_targets = targets[-num_val_samples:]
+for (i in seq_len(num_imgs)) {
+  input_imgs[i,,,] <- path_to_input_image(input_img_paths[i])
+  targets[i,,,] <- as.integer(path_to_target(target_paths[i]))
+}
 
+num_val_samples <- 1000
+
+train_input_imgs <- input_imgs[1:(num_imgs - num_val_samples),,,]
+train_targets = targets[1:(num_imgs - num_val_samples),,,]
+val_input_imgs = input_imgs[(num_imgs - num_val_samples + 1):num_imgs,,,]
+val_targets = targets[(num_imgs - num_val_samples + 1):num_imgs,,,]
 
 # In[ ]:
 
@@ -192,34 +190,46 @@ val_targets = targets[-num_val_samples:]
 # model = get_model(img_size=img_size, num_classes=3)
 # model.summary()
 
-from tensorflow import keras
-from tensorflow.keras import layers
 
-def get_model(img_size, num_classes):
-    inputs = keras.Input(shape=img_size + (3,))
-    x = layers.Rescaling(1./255)(inputs)
+get_model <- function(img_size, num_classes) {
+  input <- layer_input(shape = c(img_size, 3))
+  output <- input %>%
+    layer_rescaling(scale = 1/255) %>%
+    layer_conv_2d(filters = 64, kernel_size = 3, strides = 2, activation = "relu",
+                  padding = "same") %>%
+    layer_conv_2d(filters = 64, kernel_size = 3, activation = "relu",
+                  padding = "same") %>%
+    layer_conv_2d(filters = 128, kernel_size = 3, strides = 2, activation = "relu",
+                  padding = "same") %>%
+    layer_conv_2d(filters = 128, kernel_size = 3, activation = "relu",
+                  padding = "same") %>%
+    layer_conv_2d(filters = 256, kernel_size = 3, strides = 2, activation = "relu",
+                  padding = "same") %>%
+    layer_conv_2d(filters = 256, kernel_size = 3, activation = "relu",
+                  padding = "same") %>%
 
-    x = layers.Conv2D(64, 3, strides=2, activation="relu", padding="same")(x)
-    x = layers.Conv2D(64, 3, activation="relu", padding="same")(x)
-    x = layers.Conv2D(128, 3, strides=2, activation="relu", padding="same")(x)
-    x = layers.Conv2D(128, 3, activation="relu", padding="same")(x)
-    x = layers.Conv2D(256, 3, strides=2, padding="same", activation="relu")(x)
-    x = layers.Conv2D(256, 3, activation="relu", padding="same")(x)
 
-    x = layers.Conv2DTranspose(256, 3, activation="relu", padding="same")(x)
-    x = layers.Conv2DTranspose(256, 3, activation="relu", padding="same", strides=2)(x)
-    x = layers.Conv2DTranspose(128, 3, activation="relu", padding="same")(x)
-    x = layers.Conv2DTranspose(128, 3, activation="relu", padding="same", strides=2)(x)
-    x = layers.Conv2DTranspose(64, 3, activation="relu", padding="same")(x)
-    x = layers.Conv2DTranspose(64, 3, activation="relu", padding="same", strides=2)(x)
+    layer_conv_2d_transpose(filters = 256, kernel_size = 3, activation = "relu",
+                            padding = "same") %>%
+    layer_conv_2d_transpose(filters = 256, kernel_size = 3, activation = "relu",
+                            padding = "same", strides = 2) %>%
+    layer_conv_2d_transpose(filters = 128, kernel_size = 3, activation = "relu",
+                            padding = "same") %>%
+    layer_conv_2d_transpose(filters = 128, kernel_size = 3, activation = "relu",
+                            padding = "same", strides = 2) %>%
+    layer_conv_2d_transpose(filters = 64, kernel_size = 3, activation = "relu",
+                            padding = "same") %>%
+    layer_conv_2d_transpose(filters = 64, kernel_size = 3, activation = "relu",
+                            padding = "same", strides = 2) %>%
 
-    outputs = layers.Conv2D(num_classes, 3, activation="softmax", padding="same")(x)
+    layer_conv_2d(num_classes, 3, activation="softmax", padding="same")
 
-    model = keras.Model(inputs, outputs)
-    return model
 
-model = get_model(img_size=img_size, num_classes=3)
-model.summary()
+  keras_model(input, output)
+}
+
+model <- get_model(img_size=img_size, num_classes=3)
+model
 
 
 # In[ ]:
@@ -238,18 +248,20 @@ model.summary()
 #                     batch_size=64,
 #                     validation_data=(val_input_imgs, val_targets))
 
-model.compile(optimizer="rmsprop", loss="sparse_categorical_crossentropy")
+model %>%
+  compile(optimizer="rmsprop", loss="sparse_categorical_crossentropy")
 
-callbacks = [
-    keras.callbacks.ModelCheckpoint("oxford_segmentation.keras",
-                                    save_best_only=True)
-]
+callbacks <- list(
+    callback_model_checkpoint("oxford_segmentation.keras", save_best_only=TRUE)
+)
 
-history = model.fit(train_input_imgs, train_targets,
-                    epochs=50,
-                    callbacks=callbacks,
-                    batch_size=64,
-                    validation_data=(val_input_imgs, val_targets))
+history <- model %>% fit(
+  train_input_imgs, train_targets,
+  epochs=50,
+  callbacks=callbacks,
+  batch_size=64,
+  validation_data=list(val_input_imgs, val_targets)
+)
 
 
 # In[ ]:
@@ -264,15 +276,7 @@ history = model.fit(train_input_imgs, train_targets,
 # plt.title("Training and validation loss")
 # plt.legend()
 
-epochs = range(1, len(history.history["loss"]) + 1)
-loss = history.history["loss"]
-val_loss = history.history["val_loss"]
-plt.figure()
-plt.plot(epochs, loss, "bo", label="Training loss")
-plt.plot(epochs, val_loss, "b", label="Validation loss")
-plt.title("Training and validation loss")
-plt.legend()
-
+plot(history)
 
 # In[ ]:
 
@@ -296,22 +300,26 @@ plt.legend()
 #
 # display_mask(mask)
 
-from tensorflow.keras.utils import array_to_img
 
-model = keras.models.load_model("oxford_segmentation.keras")
+model <- load_model_tf("oxford_segmentation.keras")
 
-i = 4
-test_image = val_input_imgs[i]
-plt.axis("off")
-plt.imshow(array_to_img(test_image))
+i <- 5
+test_image <- val_input_imgs[i,,,,drop=FALSE]
+plot(as.raster(test_image[1,,,], max = 255))
 
-mask = model.predict(np.expand_dims(test_image, 0))[0]
 
-def display_mask(pred):
-    mask = np.argmax(pred, axis=-1)
-    mask *= 127
-    plt.axis("off")
-    plt.imshow(mask)
+mask <- predict(model, test_image)
+
+display_mask <- function(pred) {
+  mask <- tf$argmax(pred, axis=-1L) * 127
+  mask[1,,] %>%
+    tf$expand_dims(-1L) %>%
+    tf$image$grayscale_to_rgb() %>%
+    as.array() %>%
+    as.raster(max = 255) %>%
+    plot()
+}
+
 
 display_mask(mask)
 
